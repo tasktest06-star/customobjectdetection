@@ -12,31 +12,51 @@ video_search:
   num_videos_per_class: 10
   max_duration_seconds: 300
   download_dir: "data/videos"
+  use_llm_queries: false          # set true to use Claude for richer queries
 
 frame_extraction:
   fps: 0.5
   max_frames_per_video: 100
   output_dir: "data/frames"
   min_blur_variance: 100
+  use_scene_detection: true       # extract at scene changes, not fixed interval
+  scene_change_threshold: 0.35    # chi-squared histogram distance (0-1)
+  use_dedup: true                 # remove near-duplicate frames (dhash)
+  hash_distance_threshold: 8      # Hamming distance threshold for duplicates
+  min_brightness: 30.0            # drop very dark frames
+  max_brightness: 225.0           # drop overexposed frames
 
 clip_filtering:
   enabled: true
   model: "openai/clip-vit-base-patch32"
   similarity_threshold: 0.20
   batch_size: 32
+  negative_weight: 0.3            # how much to penalise negative prompt matches
+  cache_dir: "data/.clip_cache"   # set null to disable score caching
 
 pseudo_labeling:
   labeler: "grounding_dino"
   model: "IDEA-Research/grounding-dino-tiny"
   box_threshold: 0.30
   text_threshold: 0.25
-  batch_size: 8
+  batch_size: 4                   # images per batch for homogeneous inference
+  use_descriptions: true          # enrich prompts with visual descriptions
+  cache_dir: "data/.gdino_cache"  # set null to disable result caching
+  tile_large_images: true         # tile images larger than tile_threshold_px
+  tile_threshold_px: 1280
 
 annotation:
   train_ratio: 0.8
+  test_ratio: 0.0                 # >0 creates a held-out test split
   output_dir: "data/datasets"
   min_box_area_ratio: 0.001
   max_box_area_ratio: 0.90
+  max_aspect_ratio: 8.0           # drop extreme aspect ratio boxes
+  use_video_level_split: true     # prevent leakage from same video
+
+temporal_filter:
+  enabled: false                  # cross-validate boxes across frames
+  min_appearances: 2              # box must appear in N frames to survive
 
 training:
   model: "yolov8n.pt"
@@ -49,3 +69,6 @@ self_training:
   enabled: true
   rounds: 2
   confidence_threshold: 0.50
+  min_map_improvement: 0.02       # stop early if mAP gain < this
+  use_hard_negatives: true        # inject uncertain images into next round
+  hard_negative_ratio: 0.30       # fraction of training set = hard negatives

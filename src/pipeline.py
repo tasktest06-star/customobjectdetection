@@ -1,16 +1,15 @@
 """
-Top-level orchestrator.
+Enhanced top-level pipeline orchestrator.
 
-Steps:
-  1. Download YouTube videos per class (yt-dlp)
-  2. Extract sharp frames (OpenCV)
-  3. Pre-filter frames with CLIP similarity
-  4. Generate pseudo-labels with Grounding DINO or OWLv2
-  5. Filter pseudo-labels (confidence, NMS, size)
-  6. Build COCO JSON + YOLO data.yaml
-  7. Fine-tune YOLOv8  [+ optional self-training loop]
+Improvements over v1:
+  - Step-level checkpointing: each stage saves its output so a crash at
+    step N resumes from step N-1 (use --resume flag or skip_to parameter)
+  - Structured logging: replaces print() with Python logging (file + console)
+  - Parallel class processing: video download and frame extraction for all
+    classes run concurrently via ThreadPoolExecutor
 """
 import yaml
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import List, Optional
 
@@ -19,10 +18,16 @@ from src.video_pipeline.frame_extractor import FrameExtractor
 from src.pseudo_labeling.clip_filter import CLIPFilter
 from src.pseudo_labeling.grounding_dino import GroundingDINOLabeler
 from src.pseudo_labeling.owl_vit import OWLv2Labeler
-from src.annotation.quality_filter import LabelQualityFilter
+from src.annotation.quality_filter import (
+    LabelQualityFilter, check_class_balance, temporal_consistency_filter
+)
 from src.annotation.coco_builder import COCOBuilder
 from src.training.yolo_trainer import YOLOTrainer
 from src.training.self_trainer import SelfTrainer
+from src.utils.logger import get_logger
+from src.utils.checkpoint import PipelineCheckpoint
+
+log = get_logger("pipeline")
 
 
 class ObjectDetectionPipeline:
@@ -79,43 +84,88 @@ class ObjectDetectionPipeline:
             output_dir=c["training"]["output_dir"],
         )
 
+    # ── parallel download helper ───────────────────────────────────
+
+    def _download_and_extract_class(self, cls: dict, cfg: dict) -> List[str]:
+        """Download + extract frames for one class. Designed for thread pool."""
+        class_name = cls["name"]
+        log.info(f"[{class_name}] Starting download…")
+        vids = self.downloader.search_and_download(
+            class_name=class_name,
+            search_queries=cls.get("search_queries"),
+            num_videos=cfg["video_search"]["num_videos_per_class"],
+            max_duration=cfg["video_search"]["max_duration_seconds"],
+        )
+        log.info(f"[{class_name}] {len(vids)} videos downloaded — extracting frames…")
+        frames = self.extractor.extract_all(vids, class_name)
+        log.info(f"[{class_name}] {len(frames)} frames extracted")
+        return frames
+
+    # ── main run ───────────────────────────────────────────────────
+
     def run(
         self,
         dataset_name: str = "auto_det",
         skip_download: bool = False,
+        resume: bool = False,
+        max_download_workers: int = 3,
     ) -> str:
         """
-        Execute the full pipeline. Returns path to trained model weights.
-        Set skip_download=True to reuse frames already in data/frames/.
+        Execute the full pipeline.
+
+        Args:
+            dataset_name: name used for dataset folder and model run
+            skip_download: reuse frames already in data/frames/
+            resume: if True, skip already-completed steps using checkpoint
+            max_download_workers: number of parallel threads for download+extract
+
+        Returns path to trained model weights.
         """
         c = self.cfg
-        print(f"\n{'='*60}")
-        print(f"Pipeline starting  |  classes: {self.class_names}")
-        print(f"{'='*60}")
+        ckpt = PipelineCheckpoint(run_name=dataset_name)
 
-        # ── Steps 1-2: videos → frames ─────────────────────────────
-        all_frames: List[str] = []
-        if not skip_download:
-            for cls in c["classes"]:
-                print(f"\n[Download] {cls['name']}")
-                vids = self.downloader.search_and_download(
-                    class_name=cls["name"],
-                    search_queries=cls.get("search_queries"),
-                    num_videos=c["video_search"]["num_videos_per_class"],
-                    max_duration=c["video_search"]["max_duration_seconds"],
-                )
-                print(f"  {len(vids)} videos downloaded")
-                frames = self.extractor.extract_all(vids, cls["name"])
-                print(f"  {len(frames)} frames extracted")
-                all_frames.extend(frames)
-        else:
+        if resume:
+            ckpt.print_status()
+
+        log.info("=" * 60)
+        log.info(f"Pipeline start | classes: {self.class_names}")
+        log.info("=" * 60)
+
+        # ── Steps 1-2: videos → frames ──────────────────────────────
+        if resume and ckpt.is_done("extract"):
+            log.info("[Resume] Loading frame list from checkpoint…")
+            all_frames: List[str] = ckpt.load("extract")
+        elif skip_download:
             frames_dir = Path(c["frame_extraction"]["output_dir"])
             all_frames = [str(p) for p in frames_dir.rglob("*.jpg")]
-            print(f"[Reuse] {len(all_frames)} existing frames")
+            log.info(f"[Reuse] {len(all_frames)} existing frames")
+        else:
+            log.info(f"Downloading & extracting {len(c['classes'])} classes "
+                     f"(parallel workers: {max_download_workers})…")
+            all_frames = []
+            with ThreadPoolExecutor(max_workers=max_download_workers) as pool:
+                futures = {
+                    pool.submit(self._download_and_extract_class, cls, c): cls["name"]
+                    for cls in c["classes"]
+                }
+                for future in as_completed(futures):
+                    cls_name = futures[future]
+                    try:
+                        frames = future.result()
+                        all_frames.extend(frames)
+                    except Exception as e:
+                        log.error(f"[{cls_name}] download/extract failed: {e}")
 
-        # ── Step 3: CLIP pre-filter ─────────────────────────────────
-        if self.clip is not None:
-            print("\n[CLIP filter]")
+            ckpt.save("extract", all_frames)
+
+        log.info(f"Total frames: {len(all_frames)}")
+
+        # ── Step 3: CLIP pre-filter ──────────────────────────────────
+        if resume and ckpt.is_done("clip_filter"):
+            log.info("[Resume] Loading CLIP-filtered frames from checkpoint…")
+            all_frames = ckpt.load("clip_filter")
+        elif self.clip is not None:
+            log.info("[CLIP filter]")
             filtered: List[str] = []
             for cls in c["classes"]:
                 tag = cls["name"].replace(" ", "_")
@@ -123,14 +173,41 @@ class ObjectDetectionPipeline:
                 kept, _ = self.clip.filter_frames(cls_frames, cls["name"])
                 filtered.extend(kept)
             all_frames = filtered
+            ckpt.save("clip_filter", all_frames)
 
-        print(f"\nFrames after CLIP filter: {len(all_frames)}")
+        log.info(f"Frames after CLIP filter: {len(all_frames)}")
 
-        # ── Steps 4-5: pseudo-label + quality filter ────────────────
-        print(f"\n[Pseudo-labeling] using {type(self.labeler).__name__}")
-        raw = self.labeler.label_batch(all_frames, self.class_names)
-        detections = self.q_filter.filter_batch(raw)
-        print(f"Usable annotated images: {len(detections)}/{len(raw)}")
+        # ── Steps 4-5: pseudo-label + quality filter ─────────────────
+        if resume and ckpt.is_done("quality_filter"):
+            log.info("[Resume] Loading detections from checkpoint…")
+            detections = ckpt.load("quality_filter")
+        else:
+            if resume and ckpt.is_done("pseudo_label"):
+                log.info("[Resume] Loading raw detections from checkpoint…")
+                raw = ckpt.load("pseudo_label")
+            else:
+                log.info(f"[Pseudo-labeling] {type(self.labeler).__name__}…")
+                raw = self.labeler.label_batch(all_frames, self.class_names)
+                ckpt.save("pseudo_label", raw)
+
+            log.info("[Quality filter]")
+            detections = self.q_filter.filter_batch(raw)
+
+            # Class balance warning
+            check_class_balance(detections)
+
+            # Temporal consistency filter
+            if c.get("temporal_filter", {}).get("enabled", False):
+                detections = temporal_consistency_filter(
+                    detections,
+                    min_frame_appearances=c["temporal_filter"].get(
+                        "min_appearances", 2
+                    ),
+                )
+
+            ckpt.save("quality_filter", detections)
+
+        log.info(f"Usable annotated images: {len(detections)}")
 
         if len(detections) == 0:
             raise RuntimeError(
@@ -141,7 +218,7 @@ class ObjectDetectionPipeline:
         # ── Steps 6-7: dataset + training ──────────────────────────
         st = c["self_training"]
         if st["enabled"] and st["rounds"] > 0:
-            print(f"\n[Self-training]  rounds={st['rounds']}")
+            log.info(f"[Self-training] rounds={st['rounds']}")
             model_path = SelfTrainer(
                 class_names=self.class_names,
                 teacher=self.labeler,
@@ -151,9 +228,15 @@ class ObjectDetectionPipeline:
                 rounds=st["rounds"],
             ).run(all_frames, detections, dataset_name=f"{dataset_name}_st")
         else:
-            print("\n[Build dataset]")
-            data_yaml = self.builder.build_dataset(detections, dataset_name)
-            print("\n[Train YOLOv8]")
+            if resume and ckpt.is_done("build_dataset"):
+                data_yaml = ckpt.load("build_dataset")
+                log.info(f"[Resume] Using existing dataset: {data_yaml}")
+            else:
+                log.info("[Build dataset]")
+                data_yaml = self.builder.build_dataset(detections, dataset_name)
+                ckpt.save("build_dataset", data_yaml)
+
+            log.info("[Train YOLOv8]")
             model_path = self.trainer.train(
                 data_yaml=data_yaml,
                 epochs=c["training"]["epochs"],
@@ -161,8 +244,9 @@ class ObjectDetectionPipeline:
                 imgsz=c["training"]["imgsz"],
                 run_name=dataset_name,
             )
+            ckpt.save("train", model_path)
 
-        print(f"\n{'='*60}")
-        print(f"Done.  Model: {model_path}")
-        print(f"{'='*60}\n")
+        log.info("=" * 60)
+        log.info(f"Done.  Model: {model_path}")
+        log.info("=" * 60)
         return model_path
