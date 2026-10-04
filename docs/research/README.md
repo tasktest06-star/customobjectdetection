@@ -15,6 +15,8 @@ these documents set out why and what to do instead.
 | [03-tracking-and-open-vocabulary.md](03-tracking-and-open-vocabulary.md) | Full study. Trackers, adding a class without retraining, and evaluating with no box ground truth. |
 | [04-unlabelled-pool-and-annotation.md](04-unlabelled-pool-and-annotation.md) | Full study. Semi-supervised detection from zero boxes, pseudo-label constraints, and the active-learning verdict. |
 | [05-annotation-budget-verification.md](05-annotation-budget-verification.md) | **Supersedes the annotation guidance in 03 and 04.** Refutes the headline one-box-per-clip claim, resolves the gold-set size, and gives the hour-by-hour allocation. |
+| [06-post-verification-corrections.md](06-post-verification-corrections.md) | **Authoritative. Wins over 00 to 05.** Reverses the no-fine-tuning verdict, fixes the model identifier, corrects the cost model by two to four times. |
+| [07-engineering-traps-and-measurability.md](07-engineering-traps-and-measurability.md) | **Read before writing code.** Eleven traps verified from source, plus the finding that measurement is floored by recording-session count. |
 
 If you have five minutes, read the executive summary. If you are about to change code, read the gap
 analysis. If you are about to spend your own hours annotating, read document 05 first, because it
@@ -33,10 +35,11 @@ same teacher that produced the training labels, so the reported metric measures 
 teacher rather than correctness. It will report success while the model is confidently wrong. A
 small hand-annotated gold set is the prerequisite for trusting anything else in the project.
 
-**Fine-tuning an open-vocabulary detector destroys the property a growing class list depends on.**
-Reported collapse is from 51.90 to 0.10 average precision at 0.5 after a single-class fine-tune,
-against 51.90 held exactly by a frozen detector with visual prompting. The magnitude is under
-verification; the direction is not in question.
+**Fine-tuning is safe if done correctly. The earlier claim here was wrong and is withdrawn.** The
+collapse figure of 51.90 to 0.10 came from a thermal-infrared fine-tune evaluated on colour images,
+which is a modality shift rather than a vocabulary effect. The real evidence runs the other way: a
+full fine-tune cost 2.9 points in the wild while gaining 9.7 on never-annotated classes, and weight
+averaging landed 3.3 points above the frozen model. See document 06.
 
 ## How to read the confidence markers
 
@@ -55,7 +58,8 @@ Two that appeared here originally are now resolved, in document 05.
 
 - **Resolved. The gold set is 450 frames**, as 3 frames per clip across all 150 clips, scored by 5-fold cross-validation over clips rather than a fixed holdout. Documents 03 and 04 disagreed two-fold and were both arguing about a saturating axis; the binding constraint is clip count, not frame count.
 - **Resolved and refuted. The one-box-per-clip claim was an arithmetic artefact.** The reported 58% and 88% turned out to be the same result stated two ways, and the unit was per image rather than per clip. Verify-and-correct remains the top recommendation, but on different evidence.
-- **Still open.** The catastrophic-forgetting magnitude came from a single-class fine-tune that may be degenerate. Whether it generalises to a realistic multi-class fine-tune is under verification.
+- **Resolved and reversed.** The catastrophic-forgetting figure was a modality shift, not a vocabulary effect. Fine-tuning is back in the plan, on a copy with a capped schedule and weight averaging. Measure retention by median, never mean.
+- **Newly blocking.** How many distinct recording sessions, rooms and physical instrument units are behind the 150 clips? Measurement precision is floored by that count, not by the clip count.
 - **Still open.** A claimed fivefold CUDA graphs speedup traces to one unresolved issue thread and drives the best-case cost model. Plan with the slower number.
 - **Newly open.** The performance prior in the executive summary is probably too optimistic. Zero-shot median average precision on a 35-domain suite is 11.9 to 18.4, not the COCO figures.
 
