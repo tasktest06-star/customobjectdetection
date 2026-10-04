@@ -1,19 +1,20 @@
 """
-Top-level orchestrator.
+Top-level orchestrator for the label-free object detection fine-tuning pipeline.
 
-Steps:
-  1. Download YouTube videos per class (yt-dlp)
-  2. Extract sharp frames (OpenCV)
-  3. Pre-filter frames with CLIP similarity
-  4. Generate pseudo-labels with Grounding DINO or OWLv2
-  5. Filter pseudo-labels (confidence, NMS, size)
-  6. Build COCO JSON + data.yaml
-  7. Fine-tune RT-DETR  [+ optional self-training loop]
+Pipeline stages (all components are Apache 2.0, MIT, or BSD):
+  1. Download YouTube videos per class          — yt-dlp (Unlicense)
+  2. Extract sharp frames from videos           — OpenCV (Apache 2.0)
+  3. Pre-filter frames with CLIP similarity     — CLIP/transformers (MIT)
+  4. Generate pseudo-labels (zero-shot)         — GroundingDINO or OWLv2 (Apache 2.0)
+  5. Filter pseudo-labels (NMS + confidence)    — numpy (BSD)
+  6. Build COCO JSON dataset                    — custom (Apache 2.0)
+  7. Fine-tune RT-DETR on pseudo-labeled data   — transformers (Apache 2.0)
+     [optional: teacher-student self-training loop]
 
-All components are Apache 2.0 (or MIT/BSD compatible). The YOLOv8/ultralytics
-student (AGPL-3.0) from the original project is replaced by RT-DETR via
-HuggingFace transformers (Apache 2.0).
+The YOLOv8/ultralytics student (AGPL-3.0) used in earlier versions of this
+pipeline is replaced here by RT-DETR via HuggingFace transformers (Apache 2.0).
 """
+
 import yaml
 from pathlib import Path
 from typing import List, Optional
@@ -30,15 +31,48 @@ from src.training.self_trainer import SelfTrainer
 
 
 class ObjectDetectionPipeline:
+    """
+    End-to-end pipeline: class names → trained RT-DETR detector.
+
+    All state (downloaded videos, extracted frames, pseudo-labels, datasets,
+    trained models) is written to subdirectories of the working directory so that
+    individual stages can be re-run independently (e.g. --skip-download).
+
+    Usage:
+        pipeline = ObjectDetectionPipeline("configs/pipeline_config.yaml")
+        model_path = pipeline.run(dataset_name="my_run")
+    """
+
     def __init__(self, config_path: str = "configs/pipeline_config.yaml"):
+        """
+        Load configuration and instantiate all pipeline components.
+
+        Args:
+            config_path: Path to a YAML config file. See configs/pipeline_config.yaml
+                         for the full reference with all supported keys.
+        """
         with open(config_path) as f:
             self.cfg = yaml.safe_load(f)
         self._build_components()
 
     def _build_components(self):
+        """
+        Instantiate all pipeline components from the loaded config.
+
+        Called once at __init__ and again if the class list is overridden at
+        runtime (e.g. via --classes on the CLI), because some components (the
+        labeler, quality filter, and COCO builder) depend on class_names.
+        """
         c = self.cfg
 
+        # ── Stage 1: video downloader ────────────────────────────────────────
+        # Uses yt-dlp to search YouTube and download videos matching each class.
+        # Videos are stored in subdirectories named after the class.
         self.downloader = YouTubeDownloader(c["video_search"]["download_dir"])
+
+        # ── Stage 2: frame extractor ─────────────────────────────────────────
+        # Samples frames from each video at a fixed rate (default 0.5 fps) and
+        # discards blurry frames using the Laplacian variance of the grayscale image.
         self.extractor = FrameExtractor(
             output_dir=c["frame_extraction"]["output_dir"],
             fps=c["frame_extraction"]["fps"],
@@ -46,6 +80,11 @@ class ObjectDetectionPipeline:
             min_blur_variance=c["frame_extraction"]["min_blur_variance"],
         )
 
+        # ── Stage 3: CLIP pre-filter ─────────────────────────────────────────
+        # Optional cheap relevance filter: computes cosine similarity between each
+        # frame's CLIP image embedding and the class name text embedding. Frames
+        # below the threshold are discarded before the expensive detector runs.
+        # Set clip_filtering.enabled: false in the config to skip this stage.
         cf = c["clip_filtering"]
         self.clip: Optional[CLIPFilter] = (
             CLIPFilter(
@@ -57,6 +96,13 @@ class ObjectDetectionPipeline:
             else None
         )
 
+        # ── Stage 4: pseudo-labeler ──────────────────────────────────────────
+        # Two options, both zero-shot (no task-specific training needed):
+        #   "grounding_dino": better for rich text queries; produces slightly noisier
+        #                     label strings (decoded token spans) — handled by
+        #                     SelfTrainer._match_label() during ensembling.
+        #   "owl_vit":        better for small/dense objects; returns exact class
+        #                     name strings; generally more stable per-class scores.
         pl = c["pseudo_labeling"]
         if pl["labeler"] == "grounding_dino":
             self.labeler: GroundingDINOLabeler | OWLv2Labeler = GroundingDINOLabeler(
@@ -65,22 +111,33 @@ class ObjectDetectionPipeline:
                 text_threshold=pl["text_threshold"],
             )
         else:
+            # Pass model_id explicitly so the config value is respected
             self.labeler = OWLv2Labeler(
                 model_id=pl["model"], score_threshold=pl["box_threshold"]
             )
 
+        # ── Stage 5: quality filter ──────────────────────────────────────────
+        # Applies confidence threshold, bounding-box size checks, and per-class NMS.
+        # Images with no remaining boxes are dropped entirely.
         self.class_names: List[str] = [cls["name"] for cls in c["classes"]]
         self.q_filter = LabelQualityFilter(
             min_score=pl["box_threshold"],
             min_area_ratio=c["annotation"]["min_box_area_ratio"],
             max_area_ratio=c["annotation"]["max_box_area_ratio"],
         )
+
+        # ── Stage 6: COCO dataset builder ────────────────────────────────────
+        # Splits detections into train/val, copies images, and writes COCO JSON
+        # annotation files + a data.yaml for dataset metadata.
         self.builder = COCOBuilder(
             class_names=self.class_names,
             output_dir=c["annotation"]["output_dir"],
             train_ratio=c["annotation"]["train_ratio"],
         )
 
+        # ── Stage 7: RT-DETR trainer ─────────────────────────────────────────
+        # Fine-tunes the pretrained RT-DETR checkpoint on the pseudo-labeled dataset.
+        # The trainer is also used by SelfTrainer for intermediate rounds.
         tr = c["training"]
         self.trainer = RTDETRTrainer(
             base_model=tr["model"],
@@ -93,40 +150,55 @@ class ObjectDetectionPipeline:
         skip_download: bool = False,
     ) -> str:
         """
-        Execute the full pipeline. Returns path to trained model directory.
-        Set skip_download=True to reuse frames already in data/frames/.
+        Execute all pipeline stages sequentially.
+
+        Args:
+            dataset_name:  Name prefix for output directories (datasets, models).
+            skip_download: If True, skip stages 1-2 and reuse frames from
+                           data/frames/. Useful for iterating on pseudo-labeling
+                           or training without re-downloading videos.
+
+        Returns:
+            Path to the trained model checkpoint directory (str).
         """
         c = self.cfg
         print(f"\n{'='*60}")
         print(f"Pipeline starting  |  classes: {self.class_names}")
         print(f"{'='*60}")
 
-        # ── Steps 1-2: videos → frames ─────────────────────────────
+        # ── Stages 1-2: download videos and extract frames ──────────────────
         all_frames: List[str] = []
         if not skip_download:
             for cls in c["classes"]:
                 print(f"\n[Download] {cls['name']}")
+                # Download videos matching this class's search queries
                 vids = self.downloader.search_and_download(
                     class_name=cls["name"],
-                    search_queries=cls.get("search_queries"),
+                    search_queries=cls.get("search_queries"),  # None → auto-generate
                     num_videos=c["video_search"]["num_videos_per_class"],
                     max_duration=c["video_search"]["max_duration_seconds"],
                 )
                 print(f"  {len(vids)} videos downloaded")
+                # Extract sharp frames from each video
                 frames = self.extractor.extract_all(vids, cls["name"])
                 print(f"  {len(frames)} frames extracted")
                 all_frames.extend(frames)
         else:
+            # Reuse previously extracted frames from disk
             frames_dir = Path(c["frame_extraction"]["output_dir"])
             all_frames = [str(p) for p in frames_dir.rglob("*.jpg")]
             print(f"[Reuse] {len(all_frames)} existing frames")
 
-        # ── Step 3: CLIP pre-filter ─────────────────────────────────
+        # ── Stage 3: CLIP pre-filter ─────────────────────────────────────────
+        # Run per-class filtering: frames are tagged by class name in their path
+        # (e.g. data/frames/raccoon/...) so we can filter each class separately
+        # using its own text embedding.
         if self.clip is not None:
             print("\n[CLIP filter]")
             filtered: List[str] = []
             for cls in c["classes"]:
                 tag = cls["name"].replace(" ", "_")
+                # Only process frames belonging to this class
                 cls_frames = [f for f in all_frames if tag in f]
                 kept, _ = self.clip.filter_frames(cls_frames, cls["name"])
                 filtered.extend(kept)
@@ -134,9 +206,11 @@ class ObjectDetectionPipeline:
 
         print(f"\nFrames after CLIP filter: {len(all_frames)}")
 
-        # ── Steps 4-5: pseudo-label + quality filter ────────────────
+        # ── Stages 4-5: pseudo-labeling + quality filtering ─────────────────
         print(f"\n[Pseudo-labeling] using {type(self.labeler).__name__}")
+        # Generate bounding boxes for all frames using the zero-shot labeler
         raw = self.labeler.label_batch(all_frames, self.class_names)
+        # Remove low-confidence, mis-sized, and duplicate boxes
         detections = self.q_filter.filter_batch(raw)
         print(f"Usable annotated images: {len(detections)}/{len(raw)}")
 
@@ -146,10 +220,11 @@ class ObjectDetectionPipeline:
                 "Try lowering box_threshold or similarity_threshold in config."
             )
 
-        # ── Steps 6-7: dataset + training ──────────────────────────
+        # ── Stages 6-7: build dataset and train ─────────────────────────────
         tr = c["training"]
         st = c["self_training"]
         if st["enabled"] and st["rounds"] > 0:
+            # Self-training: iteratively refine labels with teacher-student ensembling
             print(f"\n[Self-training]  rounds={st['rounds']}")
             model_path = SelfTrainer(
                 class_names=self.class_names,
@@ -160,6 +235,7 @@ class ObjectDetectionPipeline:
                 rounds=st["rounds"],
             ).run(all_frames, detections, dataset_name=f"{dataset_name}_st")
         else:
+            # Single-round training on the raw pseudo-labels
             print("\n[Build dataset]")
             data_yaml = self.builder.build_dataset(detections, dataset_name)
             print("\n[Train RT-DETR]")
