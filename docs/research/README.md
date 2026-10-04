@@ -15,6 +15,7 @@ these documents set out why and what to do instead.
 | [03-tracking-and-open-vocabulary.md](03-tracking-and-open-vocabulary.md) | Full study. Trackers, adding a class without retraining, and evaluating with no box ground truth. |
 | [04-unlabelled-pool-and-annotation.md](04-unlabelled-pool-and-annotation.md) | Full study. Semi-supervised detection from zero boxes, pseudo-label constraints, and the active-learning verdict. |
 | [05-annotation-budget-verification.md](05-annotation-budget-verification.md) | **Supersedes the annotation guidance in 03 and 04.** Refutes the headline one-box-per-clip claim, resolves the gold-set size, and gives the hour-by-hour allocation. |
+| [08-resolved-constraints-and-plan.md](08-resolved-constraints-and-plan.md) | **Start here. Current position.** The three confirmed constraints, what they unblock, the three-phase plan, and the fine-tuning recipe. |
 | [06-post-verification-corrections.md](06-post-verification-corrections.md) | **Authoritative. Wins over 00 to 05.** Reverses the no-fine-tuning verdict, fixes the model identifier, corrects the cost model by two to four times. |
 | [07-engineering-traps-and-measurability.md](07-engineering-traps-and-measurability.md) | **Read before writing code.** Eleven traps verified from source, plus the finding that measurement is floored by recording-session count. |
 
@@ -59,7 +60,8 @@ Two that appeared here originally are now resolved, in document 05.
 - **Resolved. The gold set is 450 frames**, as 3 frames per clip across all 150 clips, scored by 5-fold cross-validation over clips rather than a fixed holdout. Documents 03 and 04 disagreed two-fold and were both arguing about a saturating axis; the binding constraint is clip count, not frame count.
 - **Resolved and refuted. The one-box-per-clip claim was an arithmetic artefact.** The reported 58% and 88% turned out to be the same result stated two ways, and the unit was per image rather than per clip. Verify-and-correct remains the top recommendation, but on different evidence.
 - **Resolved and reversed.** The catastrophic-forgetting figure was a modality shift, not a vocabulary effect. Fine-tuning is back in the plan, on a copy with a capped schedule and weight averaging. Measure retention by median, never mean.
-- **Newly blocking.** How many distinct recording sessions, rooms and physical instrument units are behind the 150 clips? Measurement precision is floored by that count, not by the clip count.
+- **Resolved.** Nine to twenty recording sessions, so the interval is 8 to 11 points and differences above about ten points are resolvable. Grouped splitting by session is still mandatory.
+- **Resolved.** Research and publication use only, which unblocks ImageNet-21k laboratory crops and the Objects365-derived detectors. See document 08.
 - **Still open.** A claimed fivefold CUDA graphs speedup traces to one unresolved issue thread and drives the best-case cost model. Plan with the slower number.
 - **Newly open.** The performance prior in the executive summary is probably too optimistic. Zero-shot median average precision on a 35-domain suite is 11.9 to 18.4, not the COCO figures.
 
