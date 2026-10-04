@@ -1,0 +1,51 @@
+classes:
+  - name: "raccoon"
+    search_queries:
+      - "raccoon backyard video"
+      - "raccoon closeup wildlife"
+  - name: "capybara"
+    search_queries:
+      - "capybara video zoo"
+      - "capybara swimming closeup"
+
+video_search:
+  num_videos_per_class: 10
+  max_duration_seconds: 300
+  download_dir: "data/videos"
+
+frame_extraction:
+  fps: 0.5
+  max_frames_per_video: 100
+  output_dir: "data/frames"
+  min_blur_variance: 100
+
+clip_filtering:
+  enabled: true
+  model: "openai/clip-vit-base-patch32"
+  similarity_threshold: 0.20
+  batch_size: 32
+
+pseudo_labeling:
+  labeler: "grounding_dino"
+  model: "IDEA-Research/grounding-dino-tiny"
+  box_threshold: 0.30
+  text_threshold: 0.25
+  batch_size: 8
+
+annotation:
+  train_ratio: 0.8
+  output_dir: "data/datasets"
+  min_box_area_ratio: 0.001
+  max_box_area_ratio: 0.90
+
+training:
+  model: "yolov8n.pt"
+  epochs: 50
+  batch_size: 16
+  imgsz: 640
+  output_dir: "models"
+
+self_training:
+  enabled: true
+  rounds: 2
+  confidence_threshold: 0.50

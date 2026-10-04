@@ -1,0 +1,25 @@
+# Example class definitions — copy/edit this and point pipeline_config.yaml at it,
+# or just edit the `classes` block directly in pipeline_config.yaml.
+#
+# For each class you can either:
+#   - provide explicit search_queries (best quality)
+#   - omit search_queries and let the pipeline auto-generate them from the name
+
+classes:
+  - name: "golden retriever"
+    search_queries:
+      - "golden retriever dog playing outside"
+      - "golden retriever puppy closeup"
+
+  - name: "fire hydrant"
+    search_queries:
+      - "fire hydrant street video"
+      - "red fire hydrant sidewalk"
+
+  - name: "red panda"
+    search_queries:
+      - "red panda zoo climbing"
+      - "red panda eating bamboo"
+
+  - name: "stop sign"
+    # no search_queries — auto-generated: "stop sign video", "stop sign close up", etc.
