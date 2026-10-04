@@ -14,6 +14,12 @@
 > graphs speedup rests on a single unreproduced report, and the recommended annotation budget
 > conflicts two-fold with `04-unlabelled-pool-and-annotation.md`.
 >
+> **SUPERSEDED IN PART.** [`05-annotation-budget-verification.md`](05-annotation-budget-verification.md)
+> overturns this document's annotation guidance. In particular the one-box-per-clip claim was traced
+> to an arithmetic artefact, the recommended gold-set size is now 450 frames across all 150 clips,
+> and several annotation-time and active-learning figures were misframed. Read document 05 before
+> acting on anything in this file about how to spend annotation effort.
+>
 > Independently confirmed since writing: SAM 3 exists as described, `facebook/sam3` and
 > `facebook/sam3.1` both exist and are gated, and the SAM License permits commercial use.
 

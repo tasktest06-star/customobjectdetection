@@ -14,10 +14,12 @@ these documents set out why and what to do instead.
 | [02-datasets-and-licences.md](02-datasets-and-licences.md) | Reference tables. Public data you can download, which detector has seen which class, the homonym trap, and the licence landmines. |
 | [03-tracking-and-open-vocabulary.md](03-tracking-and-open-vocabulary.md) | Full study. Trackers, adding a class without retraining, and evaluating with no box ground truth. |
 | [04-unlabelled-pool-and-annotation.md](04-unlabelled-pool-and-annotation.md) | Full study. Semi-supervised detection from zero boxes, pseudo-label constraints, and the active-learning verdict. |
+| [05-annotation-budget-verification.md](05-annotation-budget-verification.md) | **Supersedes the annotation guidance in 03 and 04.** Refutes the headline one-box-per-clip claim, resolves the gold-set size, and gives the hour-by-hour allocation. |
 
 If you have five minutes, read the executive summary. If you are about to change code, read the gap
-analysis. The last two are long primary research and are meant to be searched rather than read
-front to back.
+analysis. If you are about to spend your own hours annotating, read document 05 first, because it
+overturns the advice the earlier studies gave. Documents 03 and 04 are long primary research and are
+meant to be searched rather than read front to back.
 
 ## The three findings that matter most
 
@@ -49,10 +51,13 @@ where they disagree with 03 or 04.
 
 ## Known open questions
 
-- **Annotation budget is unresolved.** Documents 03 and 04 disagree two-fold, 600 frames against 250 to 300. A power analysis is resolving it. Do not act on either number yet.
-- **One throughput figure is unreproduced.** A claimed fivefold CUDA graphs speedup traces to a single unresolved issue thread and drives the best-case cost model. Plan with the slower number.
-- **The forgetting magnitude needs its experimental setting checked.** The collapse figure came from a single-class fine-tune, which may be degenerate.
-- **One claim would reshape the annotation plan if confirmed:** that a single box per clip moves a detector from 58% to 88% of fully supervised. If it transfers, roughly 150 boxes is the highest-return work available.
+Two that appeared here originally are now resolved, in document 05.
+
+- **Resolved. The gold set is 450 frames**, as 3 frames per clip across all 150 clips, scored by 5-fold cross-validation over clips rather than a fixed holdout. Documents 03 and 04 disagreed two-fold and were both arguing about a saturating axis; the binding constraint is clip count, not frame count.
+- **Resolved and refuted. The one-box-per-clip claim was an arithmetic artefact.** The reported 58% and 88% turned out to be the same result stated two ways, and the unit was per image rather than per clip. Verify-and-correct remains the top recommendation, but on different evidence.
+- **Still open.** The catastrophic-forgetting magnitude came from a single-class fine-tune that may be degenerate. Whether it generalises to a realistic multi-class fine-tune is under verification.
+- **Still open.** A claimed fivefold CUDA graphs speedup traces to one unresolved issue thread and drives the best-case cost model. Plan with the slower number.
+- **Newly open.** The performance prior in the executive summary is probably too optimistic. Zero-shot median average precision on a 35-domain suite is 11.9 to 18.4, not the COCO figures.
 
 ## Method
 

@@ -14,6 +14,12 @@
 > roughly 22,000 public CC BY 4.0 box-annotated laboratory instances exist, and the LVIS and
 > Objects365 category audits revealed that superficially matching class names are domestic homonyms.
 >
+> **SUPERSEDED IN PART.** [`05-annotation-budget-verification.md`](05-annotation-budget-verification.md)
+> overturns this document's annotation guidance. In particular the one-box-per-clip claim was traced
+> to an arithmetic artefact, the recommended gold-set size is now 450 frames across all 150 clips,
+> and several annotation-time and active-learning figures were misframed. Read document 05 before
+> acting on anything in this file about how to spend annotation effort.
+>
 > Known conflict: this document recommends roughly 250 to 300 annotated frames while
 > `03-tracking-and-open-vocabulary.md` recommends roughly 600. A dedicated power analysis is
 > resolving it. Do not act on either number yet.

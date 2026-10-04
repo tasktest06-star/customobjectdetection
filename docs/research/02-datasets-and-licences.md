@@ -77,10 +77,19 @@ files directly.
 
 | Prompt you would write | What the dataset label actually denotes |
 |---|---|
-| `fume hood` | In LVIS, `fume_hood` maps to WordNet `hood.n.06`, an exhaust hood, meaning a kitchen range hood |
-| `microscope` | Present in LVIS, but with 3 instances across 2 images, so effectively untrained |
+| `fume hood` | LVIS `fume_hood`, category id 565, is a **frequent** class defined as "metal covering leading to a vent that exhausts smoke or fumes", with synonym `exhaust_hood`. It is a kitchen range hood. Objects365 similarly has `Extractor` |
+| `shaker` | LVIS `shaker` is "a container in which something can be shaken", meaning a condiment shaker, not an orbital shaker |
+| `microscope` | Present in LVIS but **rare**, under 10 images, so effectively untrained. Also present in Objects365 |
 | `scale` | Bathroom and kitchen scales dominate, not analytical balances |
 | `balance` | Ambiguous between the instrument and the abstract sense |
+
+Independently confirmed absent from all three major box datasets, meaning Open Images V7 boxable,
+LVIS v1 and Objects365: **centrifuge, autoclave, spectrophotometer**. Confirmed present: `Beaker` in
+Open Images, `Flask` in Objects365, `microscope` in both LVIS and Objects365 but rare in LVIS.
+
+Note that `fume_hood` being a *frequent* LVIS class is the worst case. A detector has been trained on
+many confident examples of the wrong object under the right name, so it will fire on kitchen
+extractors with high confidence rather than simply failing.
 
 Prompting a detector with a bare equipment name will therefore return domestic objects with high
 confidence. Prompt rewriting and explicit hard negatives are mandatory, not polish, and the current

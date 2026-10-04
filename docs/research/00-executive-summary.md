@@ -110,10 +110,15 @@ tracker-mined boxes contributed 0.95 of an 11.90 average-precision gain, and in 
 tracker-only pseudo-labels were net negative, moving 15.66 down to 11.73. Propagation belongs in
 the pipeline for interpolation, not as a primary label source.
 
-**Active learning is not worth building at this budget.** Reported results against random selection
-are mostly negative: learning-loss selection at minus 5.07, core-set at plus 0.07, uncertainty
-sampling between minus 6.5 and minus 8.3. Only one method verified positive. Select clips randomly
-or by prototypicality. This claim is contested and is under verification.
+**Active learning is not worth building, but not for the reason first reported.** Verification found
+the negative figures were read off the *largest* budget column of their tables, and one was
+sign-inverted: the method reported at minus 2.4 is actually plus 7.9 at a small budget. One source
+paper explicitly concludes it finds no support for the claim that uncertainty sampling fails at low
+budgets. The conclusion survives on a better argument. At roughly 150 clips you sit below the
+smallest budget at which any active-learning method for detection has been shown to beat random
+selection, and the one strong detection positive used a ten-to-one selection ratio over a two
+million image pool. If you intend to annotate nearly your whole pool, active learning cannot help by
+construction. Select clips randomly. See document 05.
 
 **Synthetic rendering is the most under-exploited option.** Rendering 47 Objaverse microscope meshes
 across a thousand poses yields roughly 47,000 synthetic microscope boxes, against 21 real ones
@@ -140,6 +145,10 @@ zero-shot rising to 36.5 at ten shots per class, rather than its headline LVIS f
 Roughly three to four weeks of wall-clock on two 3060 cards. Strict-threshold localisation will be
 weak throughout. That is inherent to the available supervision, not a flaw in the method.
 
+**These figures are under downward revision.** Later verification argues the right reference is not
+COCO but the Object Detection in the Wild suite, where zero-shot median average precision is 11.9 to
+18.4 and specialised domains fall to 0.25. See the final open question below.
+
 ## Decision guide
 
 - **Need presence tags per clip only.** Frozen backbone plus a small trained head. Cheapest by far, and at 150 clips it is competitive with anything more elaborate.
@@ -150,22 +159,45 @@ weak throughout. That is inherent to the available supervision, not a flaw in th
 
 ## Open questions
 
-Stated rather than hidden, because they are still being resolved.
+Stated rather than hidden. Two that appeared here originally have now been resolved by a dedicated
+verification pass, recorded in document 05.
 
-**Annotation budget is unresolved.** Two research passes disagree two-fold, one recommending about
-600 hand-annotated frames and the other about 250 to 300. A dedicated verification with an explicit
-power analysis is running.
+**Resolved: the annotation budget is 450 frames.** Three frames per clip across all 150 clips, at
+least 2 seconds apart, scored by 5-fold cross-validation over clips rather than a fixed holdout.
+Documents 03 and 04 disagreed two-fold and were both arguing about a saturating axis. Doubling from
+300 to 600 frames buys 0.66 mean average precision points of confidence interval, because the floor
+is set by clip count rather than frame count. Three further consequences: spreading frames across
+many clips beats densely boxing a few, which is the worst use of evaluation budget; cross-validation
+is a free 1.4-fold power gain; and per-class precision is unfalsifiable below about 8 clips per
+class, so allocate frames equally across classes rather than in proportion to frequency.
 
-**One throughput figure is unreproduced.** A claimed fivefold speedup from CUDA graphs at 512 pixels
-drives the best-case cost model and traces to a single unresolved issue thread. The slower fallback
-should be the planning assumption.
+**Resolved, and refuted: the one-box-per-clip claim was an arithmetic artefact.** It held that one
+box per clip moves a detector from 58% to 88% of fully supervised. Verification traced it to a 2016
+result where human verification with zero boxes drawn reaches 58% against 66% for full supervision,
+and 58 divided by 66 is 87.9%. The two figures are the same result stated twice, not a before and an
+after. The unit was also wrong: every underlying result is per image, never per clip.
 
-**The forgetting magnitude needs its setting checked.** The collapse from 51.90 to 0.10 came from a
-single-class fine-tune, which may be degenerate. Whether it generalises to a realistic multi-class
-fine-tune is being verified.
+What survives is still the top recommendation, on different grounds. That 2016 result does transfer
+in kind, because its input supervision is image-level labels with no boxes, which is nearly this
+project's situation. Reaching 88% of fully supervised by verifying machine proposals, with no boxes
+drawn, is real and should be a floor with modern proposals. So **verify-and-correct is the best use
+of annotation time**, and one box per clip stays in the plan as a propagation prompt rather than as a
+route to 88%.
 
-**One claim, if confirmed, would reshape the annotation plan.** It holds that annotating a single box
-per clip moves a detector from 58% to 88% of fully-supervised performance. If that transfers to this
-setting, roughly 150 boxes is the highest-return work available. Verification is in progress,
-including whether the source measured per-image or per-clip, and whether it assumed one dominant
-object per image.
+**Still open: the forgetting magnitude needs its setting checked.** The collapse from 51.90 to 0.10
+came from a single-class fine-tune, which may be degenerate. Whether it generalises to a realistic
+multi-class fine-tune is still under verification.
+
+**Still open: one throughput figure is unreproduced.** A claimed fivefold speedup from CUDA graphs at
+512 pixels drives the best-case cost model and traces to a single unresolved issue thread. Plan with
+the slower number.
+
+**Newly open: the performance prior may be too optimistic.** Verification flags that COCO figures are
+the wrong reference. On the 35-dataset Object Detection in the Wild suite, zero-shot Grounding DINO
+has a median average precision of 11.9 to 18.4, with specialised domains as low as 0.25. Those are
+averaged over overlap thresholds so they are not directly comparable to the at-0.5 table above, and
+the pipeline adds a warm start and distillation above zero-shot, but the correction points downward.
+
+**Three numbers to stop quoting**, all traced to misreadings: 35 seconds per box, a fivefold extreme
+clicking speedup, and a tenfold to twentyfold gain from verification. Real verification gains measured
+in deployment were about 1.5-fold.
