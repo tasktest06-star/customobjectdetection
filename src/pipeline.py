@@ -65,7 +65,9 @@ class ObjectDetectionPipeline:
                 text_threshold=pl["text_threshold"],
             )
         else:
-            self.labeler = OWLv2Labeler(score_threshold=pl["box_threshold"])
+            self.labeler = OWLv2Labeler(
+                model_id=pl["model"], score_threshold=pl["box_threshold"]
+            )
 
         self.class_names: List[str] = [cls["name"] for cls in c["classes"]]
         self.q_filter = LabelQualityFilter(

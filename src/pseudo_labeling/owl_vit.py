@@ -39,7 +39,7 @@ class OWLv2Labeler:
         ).to(self.device)
         with torch.no_grad():
             outputs = self.model(**inputs)
-        target_sizes = torch.tensor([image.size[::-1]])
+        target_sizes = torch.tensor([image.size[::-1]], device=self.device)
         results = self.processor.post_process_object_detection(
             outputs=outputs,
             target_sizes=target_sizes,

@@ -8,12 +8,12 @@ The student model is now RT-DETR via HuggingFace transformers (Apache 2.0),
 replacing the previous YOLOv8/ultralytics student (AGPL-3.0).
 """
 import torch
-import numpy as np
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Union
 from tqdm import tqdm
 from PIL import Image
 
 from src.pseudo_labeling.grounding_dino import GroundingDINOLabeler
+from src.pseudo_labeling.owl_vit import OWLv2Labeler
 from src.annotation.quality_filter import LabelQualityFilter, compute_iou
 from src.annotation.coco_builder import COCOBuilder
 from src.training.rtdetr_trainer import RTDETRTrainer
@@ -23,7 +23,7 @@ class SelfTrainer:
     def __init__(
         self,
         class_names: List[str],
-        teacher: GroundingDINOLabeler,
+        teacher: Union[GroundingDINOLabeler, OWLv2Labeler],
         quality_filter: LabelQualityFilter,
         coco_builder: COCOBuilder,
         rtdetr_trainer: RTDETRTrainer,
@@ -39,6 +39,19 @@ class SelfTrainer:
         self.rounds = rounds
         self.agree_iou = agree_iou
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+
+    def _match_label(self, label: str) -> str:
+        """Normalize a raw teacher label token to the nearest known class name.
+
+        GroundingDINO returns decoded text spans (e.g. "garbage truck." or just
+        "garbage") rather than exact class name strings. This maps them back to
+        the canonical name so ensemble comparisons with student labels work.
+        """
+        label = label.lower().strip().rstrip(".")
+        for name in self.class_names:
+            if name.lower() in label or label in name.lower():
+                return name
+        return label
 
     def _student_predict(
         self,
@@ -62,7 +75,9 @@ class SelfTrainer:
                         self.device
                     )
                     outputs = model(**inputs)
-                    target_sizes = torch.tensor([[image.height, image.width]])
+                    target_sizes = torch.tensor(
+                        [[image.height, image.width]], device=self.device
+                    )
                     preds = processor.post_process_object_detection(
                         outputs, target_sizes=target_sizes, threshold=conf
                     )[0]
@@ -90,6 +105,10 @@ class SelfTrainer:
         For each image, keep teacher boxes that the student also detects
         (same class, IoU >= agree_iou). Falls back to all teacher boxes when
         the student finds nothing, so we don't lose coverage on hard examples.
+
+        Teacher labels are normalized via _match_label before comparison because
+        GroundingDINO returns decoded token spans (e.g. "raccoon.") rather than
+        the exact class name strings that student labels use.
         """
         s_map = {d["image_path"]: d for d in student_dets}
         ensembled = []
@@ -101,8 +120,9 @@ class SelfTrainer:
 
             kept = []
             for i, (tb, tl) in enumerate(zip(td["boxes_xyxy"], td["labels"])):
+                tl_norm = self._match_label(str(tl))
                 for sb, sl in zip(sd["boxes_xyxy"], sd["labels"]):
-                    if tl == sl and compute_iou(tb, sb) >= self.agree_iou:
+                    if tl_norm == sl and compute_iou(tb, sb) >= self.agree_iou:
                         kept.append(i)
                         break
 
@@ -124,6 +144,9 @@ class SelfTrainer:
         dataset_name: str = "self_train",
     ) -> str:
         """Run self-training rounds. Returns path to final trained model directory."""
+        if self.rounds < 1:
+            raise ValueError("SelfTrainer requires rounds >= 1")
+
         detections = initial_detections
         if detections is None:
             print("Round 0: generating teacher-only pseudo-labels…")

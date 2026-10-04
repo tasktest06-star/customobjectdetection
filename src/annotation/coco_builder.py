@@ -94,6 +94,7 @@ class COCOBuilder:
             (ds_dir / "images" / split).mkdir(parents=True, exist_ok=True)
         (ds_dir / "annotations").mkdir(parents=True, exist_ok=True)
 
+        detections = list(detections)  # copy so the caller's list is not mutated
         random.shuffle(detections)
         n_train = int(len(detections) * self.train_ratio)
         splits = {"train": detections[:n_train], "val": detections[n_train:]}

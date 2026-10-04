@@ -12,7 +12,6 @@ import json
 import shutil
 import yaml
 import torch
-import numpy as np
 from pathlib import Path
 from typing import Dict, List, Optional
 from PIL import Image
@@ -295,7 +294,7 @@ class RTDETRTrainer:
                 image = Image.open(cfg["val_images"] / fname).convert("RGB")
                 inputs = processor(images=image, return_tensors="pt").to(self.device)
                 outputs = model(**inputs)
-                target_sizes = torch.tensor([[image.height, image.width]])
+                target_sizes = torch.tensor([[image.height, image.width]]).to(self.device)
                 preds = processor.post_process_object_detection(
                     outputs, target_sizes=target_sizes, threshold=0.01
                 )[0]
@@ -360,7 +359,7 @@ class RTDETRTrainer:
                 image = Image.open(p).convert("RGB")
                 inputs = processor(images=image, return_tensors="pt").to(self.device)
                 outputs = model(**inputs)
-                target_sizes = torch.tensor([[image.height, image.width]])
+                target_sizes = torch.tensor([[image.height, image.width]]).to(self.device)
                 preds = processor.post_process_object_detection(
                     outputs, target_sizes=target_sizes, threshold=conf
                 )[0]
