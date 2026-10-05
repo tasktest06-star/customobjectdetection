@@ -1,0 +1,40 @@
+# Example class definitions.
+# Copy the classes block into pipeline_config.yaml or use a separate file.
+#
+# Tips:
+#   - Use specific names: "bald eagle" > "eagle" (fewer false positives)
+#   - Multi-word classes work: "garbage truck", "mountain lion"
+#   - Avoid very general nouns: "animal", "bird" (will match too broadly)
+#   - For VLM backends, you can use rich descriptions as class names
+
+classes:
+  - name: "golden retriever"
+    search_queries:
+      - "golden retriever dog playing outside"
+      - "golden retriever puppy closeup"
+      - "golden retriever park footage"
+
+  - name: "fire hydrant"
+    search_queries:
+      - "fire hydrant street video"
+      - "red fire hydrant sidewalk"
+
+  - name: "red panda"
+    search_queries:
+      - "red panda zoo climbing"
+      - "red panda eating bamboo closeup"
+
+  - name: "electric scooter"
+    search_queries:
+      - "electric scooter riding city streets"
+      - "e-scooter commute urban footage"
+
+  - name: "stop sign"
+    # no search_queries → auto-generated:
+    #   "stop sign video", "stop sign close up", "how to identify stop sign"
+
+  - name: "military drone"
+    search_queries:
+      - "military drone surveillance footage"
+      - "UAV drone military demonstration"
+      - "combat drone aerial footage"

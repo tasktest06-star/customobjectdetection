@@ -1,0 +1,156 @@
+# PaddleDetection RT-DETR config for custom class fine-tuning
+#
+# !! IMPORTANT — set PADDLE_DET_PATH below before using !!
+#
+# PaddleDetection resolves _BASE_ paths relative to THIS config file's location.
+# Since this file lives outside the PaddleDetection tree, relative paths like
+# '../../configs/...' would be wrong. Replace /opt/PaddleDetection below with
+# the absolute path to your PaddleDetection clone.
+#
+# How to use:
+#   1. Replace /opt/PaddleDetection with your actual PaddleDetection path
+#   2. Set num_classes to the number of your custom classes
+#   3. Set dataset_dir to the absolute path of your COCO-format dataset
+#      (as produced by COCOBuilder.build_dataset())
+#   4. Run:
+#      python /opt/PaddleDetection/tools/train.py -c /path/to/this/file --eval
+#
+# Alternatively, use PaddleRTDETRTrainer which auto-generates this config:
+#   trainer = PaddleRTDETRTrainer(paddle_det_path="/opt/PaddleDetection")
+#   model_path = trainer.train(data_yaml="data/datasets/my_run/data.yaml", ...)
+#
+# PRETRAINED WEIGHTS
+# ──────────────────
+# PaddleDetection automatically handles the class head mismatch when
+# pretrain_weights has a different num_classes than this config.
+# Only the classification head is re-initialized; all other weights transfer.
+#
+# DATASET STRUCTURE (must match COCOBuilder output)
+# ──────────────────────────────────────────────────
+# /path/to/dataset/
+#   images/
+#     train/   ← training JPEGs
+#     val/     ← validation JPEGs
+#   annotations/
+#     instances_train.json   ← COCO format
+#     instances_val.json
+
+_BASE_: [
+  '/opt/PaddleDetection/configs/datasets/coco_detection.yml',
+  '/opt/PaddleDetection/configs/runtime.yml',
+  '/opt/PaddleDetection/configs/rtdetr/_base_/optimizer_6x.yml',
+]
+# ↑↑ Replace /opt/PaddleDetection with your actual PaddleDetection clone path ↑↑
+
+# ── CHANGE THESE ────────────────────────────────────────────────────────────
+num_classes: &num_classes 2    # ← set to your number of custom classes
+# dataset directory — absolute path to your COCOBuilder output
+_DATASET_DIR_: &dataset_dir "/path/to/your/dataset"
+# ────────────────────────────────────────────────────────────────────────────
+
+RTDETR:
+  backbone:
+    !ResNet
+    depth: 50
+    variant: 'd'
+    return_idx: [1, 2, 3]
+    dcn_v2_stages: [-1]
+    freeze_at: -1
+    freeze_norm: False
+    pretrained: True
+  neck:
+    !HybridEncoder
+    hidden_dim: 256
+    use_encoder_idx: [2]
+    num_encoder_layers: 1
+    nhead: 8
+    dim_feedforward: 1024
+    dropout: 0.
+    enc_act: 'gelu'
+    pe_temperature: 10000
+    expansion: 1.0
+    depth_mult: 1.0
+    act: 'silu'
+    eval_size: [640, 640]
+  head:
+    !RTDETRHead
+    num_classes: *num_classes    # ← class count propagated here
+    hidden_dim: 256
+    num_queries: 300
+    position_embed_type: sine
+    feat_strides: [8, 16, 32]
+    num_levels: 3
+    num_decoder_points: 4
+    nhead: 8
+    num_decoder_layers: 6
+    dim_feedforward: 1024
+    dropout: 0.
+    activation: 'relu'
+    num_denoising: 100
+    label_noise_ratio: 0.5
+    box_noise_scale: 1.0
+    learnt_init_query: False
+    eval_idx: -1
+    eps: 1e-2
+    aux_loss: True
+  post_process:
+    !RTDETRPostProcess
+    num_top_queries: 300
+    use_focal_loss: True
+
+# ── Pretrained COCO weights ──────────────────────────────────────────────────
+# PaddleDetection skips the classification head when num_classes ≠ 80.
+# Remove this line to train from scratch (much slower convergence).
+pretrain_weights: https://paddledet.bj.bcebos.com/models/rtdetr_r50vd_6x_coco.pdparams
+
+# ── Training schedule ─────────────────────────────────────────────────────────
+epoch: 50
+snapshot_epoch: 5
+log_iter: 20
+find_unused_parameters: True
+
+LearningRate:
+  base_lr: 0.00001       # per-image LR = learning_rate / batch_size
+  schedulers:
+    - !PiecewiseDecay
+      gamma: 0.1
+      milestones: [40, 48]
+    - !LinearWarmup
+      start_factor: 0.001
+      steps: 100
+
+OptimizerBuilder:
+  optimizer:
+    type: AdamW
+    weight_decay: 0.0001
+    clip_grad_by_norm: 0.1
+  regularization: null
+
+TrainReader:
+  batch_size: 4
+  worker_num: 4
+  collate_batch: True
+
+EvalReader:
+  batch_size: 1
+  worker_num: 2
+
+# ── Custom dataset ────────────────────────────────────────────────────────────
+TrainDataset:
+  !COCODataSet
+    image_dir: images/train
+    anno_path: annotations/instances_train.json
+    dataset_dir: *dataset_dir
+    data_fields: ['image', 'gt_bbox', 'gt_class', 'is_crowd']
+
+EvalDataset:
+  !COCODataSet
+    image_dir: images/val
+    anno_path: annotations/instances_val.json
+    dataset_dir: *dataset_dir
+    allow_empty: true
+
+TestDataset:
+  !ImageFolder
+    anno_path: annotations/instances_val.json
+    dataset_dir: *dataset_dir

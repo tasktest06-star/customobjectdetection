@@ -1,0 +1,80 @@
+# ── Classes ────────────────────────────────────────────────────────────────────
+# List the objects you want to detect. No labeled data required.
+# search_queries is optional — auto-generated from name if omitted.
+classes:
+  - name: "raccoon"
+    search_queries:
+      - "raccoon backyard video"
+      - "raccoon closeup wildlife footage"
+      - "raccoon eating food closeup"
+
+  - name: "capybara"
+    search_queries:
+      - "capybara video zoo"
+      - "capybara swimming closeup"
+      - "capybara herd footage"
+
+# ── Video Download ─────────────────────────────────────────────────────────────
+video_search:
+  num_videos_per_class: 10     # videos to download per class
+  max_duration_seconds: 300    # skip videos longer than 5 minutes
+  download_dir: "data/videos"
+
+# ── Frame Extraction ───────────────────────────────────────────────────────────
+frame_extraction:
+  fps: 0.5                     # 1 frame every 2 seconds
+  max_frames_per_video: 100    # cap per video to avoid one video dominating
+  output_dir: "data/frames"
+  min_blur_variance: 100.0     # Laplacian variance; decrease to keep blurrier frames
+
+# ── CLIP Pre-Filter ────────────────────────────────────────────────────────────
+clip_filtering:
+  enabled: true
+  model: "openai/clip-vit-base-patch32"
+  similarity_threshold: 0.20   # lower → keep more frames (higher recall)
+  batch_size: 32
+
+# ── Pseudo-Labeling ────────────────────────────────────────────────────────────
+# labeler choices (all Apache 2.0):
+#   "grounding_dino" — best general accuracy
+#   "owl_vit"        — better for small/dense objects
+#   "vlm_qwen2"      — VLM-based, for ambiguous classes (needs Qwen2-VL model)
+#   "vlm_internvl2"  — VLM-based, InternVL2 grounding (needs InternVL2 model)
+pseudo_labeling:
+  labeler: "grounding_dino"
+  model: "IDEA-Research/grounding-dino-tiny"   # or "grounding-dino-base" for higher accuracy
+  box_threshold: 0.30
+  text_threshold: 0.25          # only used by grounding_dino
+  batch_size: 8
+
+# ── Annotation Quality Filter ──────────────────────────────────────────────────
+annotation:
+  train_ratio: 0.8
+  output_dir: "data/datasets"
+  min_box_area_ratio: 0.001    # 0.1% of image — filters sub-pixel noise
+  max_box_area_ratio: 0.90     # 90% — filters full-image ghost detections
+
+# ── RT-DETR Training ───────────────────────────────────────────────────────────
+# backend choices:
+#   "hf"     — HuggingFace transformers (PyTorch); works out of the box
+#   "paddle" — PaddleDetection (PaddlePaddle); requires extra install (see README)
+training:
+  backend: "hf"                      # Change to "paddle" for PaddleDetection
+  model: "PekingU/rtdetr_r50vd"      # HF model ID (only used when backend=hf)
+  backbone: "r50vd"                  # PaddleDetection backbone (only when backend=paddle)
+  paddle_det_path: "/opt/PaddleDetection"  # path to PaddleDetection clone (backend=paddle)
+  epochs: 50
+  batch_size: 8                      # reduce to 4 if GPU OOM
+  imgsz: 640
+  learning_rate: 0.0001
+  weight_decay: 0.0001
+  output_dir: "models"
+  hf_model: "PekingU/rtdetr_r50vd"   # HF model used as self-training student when backend=paddle
+
+# ── Self-Training ──────────────────────────────────────────────────────────────
+# Enable for +3-8 mAP50 improvement at ~2-3x training time cost.
+self_training:
+  enabled: false
+  rounds: 2
+  intermediate_epochs: 30     # epochs for rounds 0..N-2
+  confidence_threshold: 0.50  # student confidence threshold for ensemble voting

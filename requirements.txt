@@ -1,0 +1,38 @@
+# ─── Core pipeline (Apache 2.0 / MIT / BSD / Unlicense) ──────────────────────
+yt-dlp>=2024.1.0          # Unlicense — YouTube search + download
+opencv-python>=4.8.0      # Apache 2.0 — frame extraction, blur detection
+torch>=2.0.0              # BSD 3-Clause — deep learning runtime
+torchvision>=0.15.0       # BSD — image transforms
+transformers>=4.40.0      # Apache 2.0 — GroundingDINO, OWLv2, CLIP, RT-DETR (HF)
+accelerate>=0.26.0        # Apache 2.0 — multi-GPU / mixed-precision helpers
+Pillow>=10.0.0            # HPND (permissive) — image loading
+numpy>=1.24.0             # BSD — array math
+tqdm>=4.65.0              # MIT — progress bars
+pyyaml>=6.0               # MIT — config files
+scikit-learn>=1.3.0       # BSD — optional utilities
+matplotlib>=3.7.0         # BSD — visualization
+pycocotools>=2.0.7        # BSD 2-Clause — standard COCO mAP evaluation
+
+# ─── VLM labeler (optional, Apache 2.0) ──────────────────────────────────────
+# Used by src/pseudo_labeling/vlm_labeler.py (InternVL2 / Qwen2-VL backend)
+einops>=0.7.0             # MIT — tensor rearrangement (required by InternVL2)
+timm>=0.9.0               # Apache 2.0 — vision model zoo (InternVL2 dep)
+sentencepiece>=0.1.99     # Apache 2.0 — tokenization
+
+# ─── PaddleDetection (Apache 2.0) — install separately ───────────────────────
+# PaddlePaddle and PaddleDetection are NOT installable via a simple pip line
+# because the correct build depends on your CUDA version.
+#
+# Step 1 — install PaddlePaddle:
+#   GPU (CUDA 11.8):  pip install paddlepaddle-gpu==2.6.0 -f https://www.paddlepaddle.org.cn/whl/linux/mkl/avx/stable.html
+#   CPU only:         pip install paddlepaddle==2.6.0
+#
+# Step 2 — clone and install PaddleDetection:
+#   git clone https://github.com/PaddlePaddle/PaddleDetection
+#   cd PaddleDetection
+#   pip install -r requirements.txt
+#   pip install -v -e .          # installs ppdet package
+#
+# The trainer at src/training/paddle_rtdetr_trainer.py works via subprocess so
+# PaddlePaddle does NOT need to be importable in the same Python environment
+# as this project — only in the environment where PaddleDetection runs.
