@@ -10,7 +10,8 @@ these documents set out why and what to do instead.
 | Document | Read it for |
 |---|---|
 | [00-executive-summary.md](00-executive-summary.md) | The answer. Verified facts, the recommended pipeline, the honest ceiling, and a decision guide. Stands alone. |
-| [01-gap-analysis.md](01-gap-analysis.md) | Twelve defects in this repository's pipeline, each with a file and line number and a fix. Most immediately actionable. |
+| [FIXING-THIS-PIPELINE.md](FIXING-THIS-PIPELINE.md) | **Start here if you are changing the code.** An ordered remediation guide with working code for each fix, verified before publishing. |
+| [01-gap-analysis.md](01-gap-analysis.md) | Twelve defects in this repository's pipeline, each with a file and line number. The diagnosis behind the guide above. |
 | [02-datasets-and-licences.md](02-datasets-and-licences.md) | Reference tables. Public data you can download, which detector has seen which class, the homonym trap, and the licence landmines. |
 | [03-tracking-and-open-vocabulary.md](03-tracking-and-open-vocabulary.md) | Full study. Trackers, adding a class without retraining, and evaluating with no box ground truth. |
 | [04-unlabelled-pool-and-annotation.md](04-unlabelled-pool-and-annotation.md) | Full study. Semi-supervised detection from zero boxes, pseudo-label constraints, and the active-learning verdict. |
@@ -19,10 +20,18 @@ these documents set out why and what to do instead.
 | [06-post-verification-corrections.md](06-post-verification-corrections.md) | **Authoritative. Wins over 00 to 05.** Reverses the no-fine-tuning verdict, fixes the model identifier, corrects the cost model by two to four times. |
 | [07-engineering-traps-and-measurability.md](07-engineering-traps-and-measurability.md) | **Read before writing code.** Eleven traps verified from source, plus the finding that measurement is floored by recording-session count. |
 
-If you have five minutes, read the executive summary. If you are about to change code, read the gap
-analysis. If you are about to spend your own hours annotating, read document 05 first, because it
-overturns the advice the earlier studies gave. Documents 03 and 04 are long primary research and are
-meant to be searched rather than read front to back.
+If you have five minutes, read the executive summary. **If you are about to change code, read
+[FIXING-THIS-PIPELINE.md](FIXING-THIS-PIPELINE.md)**: it gives the three fixes that matter first, in
+order, with code that has been run. If you are about to spend your own hours annotating, read
+document 05 first, because it overturns the advice the earlier studies gave. Documents 03 and 04 are
+long primary research and are meant to be searched rather than read front to back.
+
+## The implemented version
+
+Everything the research recommends is implemented in
+`tasktest06-star/VLM_tunning`, with a dependency-free test suite and a
+ten-minute walkthrough that needs nothing installed. This branch adds
+documentation only and changes no code here.
 
 ## The three findings that matter most
 
